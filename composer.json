@@ -1,0 +1,19 @@
+{
+    "name": "denismilovanov/phpdaemonizer",
+    "description": "Lightweight daemonization tool for php command line scripts based on pcntl_fork.",
+    "authors": [
+        {
+            "name": "Denis Milovanov",
+            "email": "me@denismilovanov.net"
+        }
+    ],
+    "require": {
+
+    },
+    "version": "1.0",
+    "autoload": {
+        "psr-0": {
+            "PHPDaemonizer\\": "src/"
+        }
+    }
+}

@@ -43,6 +43,8 @@
     to process them.
 */
 
+namespace PHPDaemonizer;
+
 class Daemon {
 
     /* variables */
