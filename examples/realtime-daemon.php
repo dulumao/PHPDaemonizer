@@ -8,19 +8,23 @@
 //                                  to execute only one iteration
 //      php realtime-daemon.php -- --kill
 //                                  to send termination signal
+//      php realtime-daemon.php -- --process-number 1
+//                                  to to start it the first process
+//      php realtime-daemon.php -- --process-number 2
+//                                  to to start it the second process
+//      php realtime-daemon.php --process-number 1 --kill
+//                                  to kill the first process
 
-// some magic to handle signals
-// this code has to present in base daemon script, not in daemon.php
-declare(ticks=1);
+require_once("../src/PHPDaemonizer/Daemon.php"); // daemonization class and error handler
 
-require_once("../daemon.php"); // daemonization class and error handler
+use PHPDaemonizer\Daemon;
 
 // some daemon settings
 mb_internal_encoding('utf-8');
 date_default_timezone_set('Europe/Moscow');
 
 // do daemonization:
-Daemon::daemonize(20); // 20 seconds to sleep between iterations
+Daemon::daemonize(5); // 5 seconds to sleep between iterations
 
 // let's work!
 Daemon::log("Hello, I am daemon.");
@@ -34,7 +38,11 @@ while (Daemon::isRunning()) {
     $iSum = 0;
     for ($iIndex = 0; $iIndex < 1000; $iIndex ++) {
         $iSum += $iIndex;
+        usleep(1000);
     }
+
+    // some notice to be caught by ErrorHandler...
+    echo $b;
 
     // sleeping
     Daemon::sleep();

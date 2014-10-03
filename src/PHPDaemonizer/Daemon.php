@@ -2,45 +2,6 @@
 
 /*
     Class for daemonization php command line scripts.
-    The script to be daemonized have to be of structure shown below:
-
-    <?php
-        declare(ticks=1);
-
-        Daemon::daemonize(N);
-
-        while (Daemon::isRunning()) {
-            // some work here
-
-            Daemon::sleep();
-        }
-    ?>
-
-    Daemonization is performed via pcntl_fork.
-
-    To start script run:
-        php realtime-daemon.php
-
-    To execute only 1 iteration run:
-        php realtime-daemon.php -- --dnd
-
-    To send termination signal run:
-        php realtime-daemon.php -- --kill
-    In this case the last iteration will be completely performed so it is the "soft" termination.
-    See http://en.wikipedia.org/wiki/SIGTERM#SIGTERM for more information.
-
-    Only one process is allowed to be executed at the same time, see Daemon::preventMultipleInstances().
-    To organize some kind of multiprocessing use the unix symbolic links:
-        ln -s realtime-daemon-process1.php realtime-daemon.php
-        ln -s realtime-daemon-process2.php realtime-daemon.php
-        php realtime-daemon-process1.php
-        php realtime-daemon-process2.php
-
-    Use crontab to be sure that the daemonized script will be run again after hard crush that can happen.
-
-    The object of ErrorHandler class is used for interpretator' notices and error catching and handling.
-    These events are logged with PHP_MESSAGES type so you can provide your own logic in Daemon::log
-    to process them.
 */
 
 namespace PHPDaemonizer;
@@ -52,6 +13,7 @@ class Daemon {
     private static $isRunning = true;
     private static $iSecondsToSleep = 0;
     private static $oErrorHandler;
+    private static $oDaemonInstance = null;
 
     /* types of messages */
 
@@ -72,13 +34,13 @@ class Daemon {
     // php daemon.name -- --key1 2 --key2 3 --key3 4
     // getArgumentByKey('key1') == 2
     // getArgumentByKey('key4', 100) == 100
-    public function getArgumentByKey($sGivenKey, $sDefault = "") {
+    public static function getArgumentByKey($sGivenKey, $sDefault = "") {
         global $argv;
 
         if ($argv) {
             foreach ($argv as $sKey => $sArg) {
                 if ($sGivenKey == $sArg) {
-                    return $argv[$sKey + 1];
+                    return isset($argv[$sKey + 1]) ? $argv[$sKey + 1] : $sDefault;
                 }
             }
         }
@@ -127,6 +89,43 @@ class Daemon {
         return $iCount;
     }
 
+    /* */
+
+    public static function isMultiprocessing() {
+        return self::doesKeyExist('--process-number');
+    }
+
+    /* */
+
+    public static function getProcessNumber() {
+        if (! self::isMultiprocessing()) {
+            return '';
+        }
+        return (int)self::getArgumentByKey('--process-number', '');
+    }
+
+    /* is process with given --process-number running (check it via PID file) */
+
+    public static function isProcessRunning() {
+        return file_exists(self::getPIDFileName());
+    }
+
+    /*  descructor to catch moment the daemon is shutting down
+        see savePID: self::$oDaemonInstance = new self */
+
+    public function __destruct() {
+        self::removePIDFile();
+    }
+
+    /* removing PID file from file system, see also ErrorHandler::__errorHandler */
+
+    public static function removePIDFile() {
+        $sPIDFileName = self::getPIDFileName();
+        if (file_exists($sPIDFileName) and is_writable($sPIDFileName)) {
+            unlink($sPIDFileName);
+        }
+    }
+
     /* logging */
 
     public static function log($sMessage, $iTypeId = self::MESSAGE) {
@@ -138,6 +137,7 @@ class Daemon {
 
     private static function _daemonize($iSecondsToSleep = 10, $fHandler = null) {
         set_time_limit(0);
+        declare(ticks = 1);
 
         if (self::doesKeyExist("--do-not-daemonize") or
             self::doesKeyExist("--dnd")) {
@@ -145,8 +145,7 @@ class Daemon {
             return;
         }
 
-        $sSymbolicName = self::getCurrentScriptBasename();
-        $sPIDFile = "/tmp/$sSymbolicName.pid";
+        $sPIDFile = self::getPIDFileName();
 
         if (self::doesKeyExist("--kill")) {
             if (file_exists($sPIDFile) and is_readable($sPIDFile)) {
@@ -154,15 +153,15 @@ class Daemon {
                 if (posix_kill($iPid, SIGTERM)) {
                     self::log("SIGTERM was sent.");
                 } else {
-                    self::log("Unable to send SIGTERM.");
+                    self::log("Unable to send SIGTERM.", Daemon::PHP_MESSAGE);
                 }
                 if (is_writable($sPIDFile)) {
                     unlink($sPIDFile);
                 } else {
-                    self::log("Unable to unlink PID ($sPIDFile).");
+                    self::log("Unable to unlink PID ($sPIDFile).", Daemon::PHP_MESSAGE);
                 }
             } else {
-                self::log("There is no PID ($sPIDFile).");
+                self::log("There is no PID ($sPIDFile).", Daemon::PHP_MESSAGE);
             }
             die();
         }
@@ -180,7 +179,7 @@ class Daemon {
 
         /* sleep in order to parent process will be completely unloaded */
 
-        sleep(3);
+        sleep(1);
 
         /* singnal handler */
 
@@ -221,26 +220,39 @@ class Daemon {
             return;
         }
 
-        if(self::findActiveProcesses() > 1) {
-            self::log("Daemon is running.");
+        if(self::isProcessRunning()) {
+            self::log("Daemon " . self::getCurrentScriptSymbolicName() . " is already running.");
             die();
         }
     }
 
     /* */
 
-    private static function savePID() {
-        global $argv;
-
-        $sSymbolicName = self::getCurrentScriptBasename($argv[0]);
-
+    private static function getPIDFileName() {
+        $sSymbolicName = self::getCurrentScriptSymbolicName();
         $sPIDFile = "/tmp/$sSymbolicName.pid";
+        return $sPIDFile;
+    }
+
+    public static function getCurrentScriptSymbolicName() {
+        $sSymbolicName = self::getCurrentScriptBasename();
+        $iProcessNumber = self::getProcessNumber();
+        if ($iProcessNumber) {
+            $iProcessNumber = '-' . $iProcessNumber;
+        }
+        return $sSymbolicName . $iProcessNumber;
+    }
+
+    private static function savePID() {
+        $sPIDFile = self::getPIDFileName();
 
         if (is_writable(dirname($sPIDFile))) {
             file_put_contents($sPIDFile, posix_getpid());
         } else {
             self::log("Unable to save PID '$sPIDFile'.");
         }
+
+        self::$oDaemonInstance = new self(0);
     }
 
     /* */
@@ -289,69 +301,76 @@ class ErrorHandler {
     }
 
     public function __construct() {
-        set_error_handler('__errorHandler', E_ALL);
-        register_shutdown_function('__fatalErrorShutdownHandler');
+        set_error_handler(array($this, '__errorHandler'), E_ALL);
+        register_shutdown_function(array($this, '__fatalErrorShutdownHandler'));
+
+        error_reporting(0);
+        ini_set('display_errors', 0);
     }
 
     public function __destruct() { }
-}
 
-function __fatalErrorShutdownHandler() {
-    $aLastError = error_get_last();
+    public function __fatalErrorShutdownHandler() {
+        $aLastError = error_get_last();
 
-    if ($aLastError['type'] === E_ERROR) {
-        __errorHandler(E_ERROR, $aLastError['message'], $aLastError['file'], $aLastError['line']);
-    }
-}
-
-function __errorHandler($iErrorNumber, $sErrorMessage, $sErrorFile, $iErrorLine) {
-    $oHandler = ErrorHandler::getInstance();
-    $bDie     = false;
-
-    $sText = "";
-
-    switch ($iErrorNumber) {
-        case E_ERROR:             $sText .= 'Error';                 $bDie = true; break;
-        case E_WARNING:           $sText .= 'Warning';                             break;
-        case E_PARSE:             $sText .= 'Parsing Error';                       break;
-        case E_NOTICE:            $sText .= 'Notice';                              break;
-        case E_CORE_ERROR:        $sText .= 'Core Error';            $bDie = true; break;
-        case E_CORE_WARNING:      $sText .= 'Core Warning';                        break;
-        case E_COMPILE_ERROR:     $sText .= 'Compile Error';         $bDie = true; break;
-        case E_COMPILE_WARNING:   $sText .= 'Compile Warning';                     break;
-        case E_USER_ERROR:        $sText .= 'User Error';            $bDie = true; break;
-        case E_USER_WARNING:      $sText .= 'User Warning';                        break;
-        case E_USER_NOTICE:       $sText .= 'User Notice';                         break;
-        case E_STRICT:            $sText .= 'Strict Standards';                    break;
-        case E_RECOVERABLE_ERROR: $sText .= 'Catchable Fatal Error'; $bDie = true; break;
-        default:                  $sText .= 'Unkown Error';
-    }
-
-    $sText .= ': ' . $sErrorMessage . ' in file "' . $sErrorFile . '" on line ' . $iErrorLine . "\n";
-
-    $aDebugInfo = debug_backtrace();
-
-    for ($i = count($aDebugInfo) - 1; $i > 0; $i--) {
-        $aDebugRecord = $aDebugInfo[$i];
-
-        if (!empty($aDebugRecord['file'])) {
-            $sText .= "\tCalled from ";
-
-            $sText .= $aDebugRecord['file'] . ' [line '. $aDebugRecord['line'] .'] ';
-
-            $sText .= '('. (! empty($aDebugRecord['class'])
-                            ? $aDebugRecord['class'] . $aDebugRecord['type']
-                            : '');
-
-            $sText .= ( ! empty($aDebugRecord['function'])
-                        ? $aDebugRecord['function']
-                        : '');
-            $sText .= ")\n";
+        if ($aLastError['type'] === E_ERROR) {
+            $this->__errorHandler(E_ERROR, $aLastError['message'], $aLastError['file'], $aLastError['line']);
         }
     }
 
-    Daemon::log(trim($sText), Daemon::PHP_MESSAGE);
+    public function __errorHandler($iErrorNumber, $sErrorMessage, $sErrorFile, $iErrorLine) {
+        $oHandler = ErrorHandler::getInstance();
+        $bDie     = false;
 
-    return true;
+        $sText = "";
+
+        switch ($iErrorNumber) {
+            case E_ERROR:             $sText .= 'Error';                 $bDie = true; break;
+            case E_WARNING:           $sText .= 'Warning';                             break;
+            case E_PARSE:             $sText .= 'Parsing Error';                       break;
+            case E_NOTICE:            $sText .= 'Notice';                              break;
+            case E_CORE_ERROR:        $sText .= 'Core Error';            $bDie = true; break;
+            case E_CORE_WARNING:      $sText .= 'Core Warning';                        break;
+            case E_COMPILE_ERROR:     $sText .= 'Compile Error';         $bDie = true; break;
+            case E_COMPILE_WARNING:   $sText .= 'Compile Warning';                     break;
+            case E_USER_ERROR:        $sText .= 'User Error';            $bDie = true; break;
+            case E_USER_WARNING:      $sText .= 'User Warning';                        break;
+            case E_USER_NOTICE:       $sText .= 'User Notice';                         break;
+            case E_STRICT:            $sText .= 'Strict Standards';                    break;
+            case E_RECOVERABLE_ERROR: $sText .= 'Catchable Fatal Error'; $bDie = true; break;
+            default:                  $sText .= 'Unkown Error';
+        }
+
+        $sText .= ': ' . $sErrorMessage . ' in file "' . $sErrorFile . '" on line ' . $iErrorLine . "\n";
+
+        $aDebugInfo = debug_backtrace();
+
+        for ($i = count($aDebugInfo) - 1; $i > 0; $i--) {
+            $aDebugRecord = $aDebugInfo[$i];
+
+            if (!empty($aDebugRecord['file'])) {
+                $sText .= "\tCalled from ";
+
+                $sText .= $aDebugRecord['file'] . ' [line '. $aDebugRecord['line'] .'] ';
+
+                $sText .= '('. (! empty($aDebugRecord['class'])
+                                ? $aDebugRecord['class'] . $aDebugRecord['type']
+                                : '');
+
+                $sText .= ( ! empty($aDebugRecord['function'])
+                            ? $aDebugRecord['function']
+                            : '');
+                $sText .= ")\n";
+            }
+        }
+
+        Daemon::log(trim($sText), Daemon::PHP_MESSAGE);
+
+        if ($bDie) {
+            Daemon::removePIDFile();    // see Daemon::destructor
+            die;
+        }
+
+        return true;
+    }
 }
-

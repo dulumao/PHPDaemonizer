@@ -3,16 +3,22 @@ PHPDaemonizer
 
 Class for daemonization php command line scripts.
 
+Installation:
+
+    composer require denismilovanov/phpdaemonizer
+
 The script to be daemonized have to be of structure shown below:
 
     <?php
-        declare(ticks=1);
-    
+        require_once("autoload.php");
+
+        use PHPDaemonizer\Daemon;
+
         Daemon::daemonize(N);
-    
+
         while (Daemon::isRunning()) {
             // some work here
-    
+
             Daemon::sleep();
         }
     ?>
@@ -30,13 +36,15 @@ To send termination signal run:
 In this case the last iteration will be completely performed so it is the "soft" termination.
 See `http://en.wikipedia.org/wiki/SIGTERM#SIGTERM` for more information.
 
-Only one process is allowed to be executed at the same time, see `Daemon::preventMultipleInstances()`.
-To organize some kind of multiprocessing use the unix symbolic links:
-    
-    ln -s realtime-daemon-process1.php realtime-daemon.php
-    ln -s realtime-daemon-process2.php realtime-daemon.php
-    php realtime-daemon-process1.php
-    php realtime-daemon-process2.php
+To organize multiprocessing pass the --process-number argument:
+
+    php realtime-daemon-process1.php --process-number 1
+    php realtime-daemon-process2.php --process-number 2
+
+To kill them use:
+
+    php realtime-daemon-process1.php --process-number 1 --kill
+    php realtime-daemon-process2.php --process-number 2 --kill
 
 Use crontab to be sure that the daemonized script will be run again after hard crush that can happen.
 
