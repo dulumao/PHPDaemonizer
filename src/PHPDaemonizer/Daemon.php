@@ -194,7 +194,7 @@ class Daemon {
 
         sleep(1);
 
-        /* singnal handler */
+        /* signal handler */
 
         if (! $fHandler) {
             $fHandler = function($iSignal) {
@@ -217,12 +217,48 @@ class Daemon {
         self::$iSecondsToSleep = $iSecondsToSleep;
     }
 
+    /* cron daemonization */
+
+    private static function _cronDaemonize() {
+        set_time_limit(0);
+        declare(ticks = 1);
+
+        /* signal handler */
+
+        $fHandler = function($iSignal) {
+            switch($iSignal) {
+                case SIGTERM: case SIGINT: case SIGHUP: {
+                    self::log("Daemon " . self::getCurrentScriptBasename(). "  has received signal.");
+                    self::removePIDFile();
+                    break;
+                }
+            }
+
+        };
+
+        if (! pcntl_signal(SIGTERM, $fHandler) or
+            ! pcntl_signal(SIGINT, $fHandler) or
+            ! pcntl_signal(SIGHUP, $fHandler)) {
+            self::log("Unable to set signal handler.");
+            die();
+        }
+    }
+
     /* main daemonization method */
 
     public static function daemonize($fHandler = null) {
         self::$oErrorHandler = ErrorHandler::getInstance();
         self::preventMultipleInstances();
         self::_daemonize($fHandler);
+        self::savePID();
+    }
+
+    /* main cron daemonization method */
+
+    public static function cronDaemonize() {
+        self::$oErrorHandler = ErrorHandler::getInstance();
+        self::preventMultipleInstances();
+        self::_cronDaemonize();
         self::savePID();
     }
 
