@@ -14,6 +14,7 @@ class Daemon {
     private static $iSecondsToSleep = 0;
     private static $oErrorHandler;
     private static $oDaemonInstance = null;
+    private static $fLogCallback = null;
 
     /* types of messages */
 
@@ -126,11 +127,23 @@ class Daemon {
         }
     }
 
+    /* log callback, to write important messages in database, etc. */
+
+    public static function setLogCallback($fLogCallback) {
+        if (is_callable($fLogCallback)) {
+            self::$fLogCallback = $fLogCallback;
+        }
+    }
+
     /* logging */
 
     public static function log($sMessage, $iTypeId = self::MESSAGE) {
         echo date("d-m-Y H:i:s ") . $sMessage . "\n";
-        // you can handle PHP_MESSAGE here
+
+        //
+        if (self::$fLogCallback) {
+            call_user_func(self::$fLogCallback, $sMessage, $iTypeId);
+        }
     }
 
     /* daemonization */
