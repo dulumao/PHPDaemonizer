@@ -200,8 +200,8 @@ class Daemon {
             $fHandler = function($iSignal) {
                 switch($iSignal) {
                     case SIGTERM: {
-                        self::log("Daemon " . self::getCurrentScriptBasename(). "  has received SIGTERM.");
-                        self::halt('SIGTERM');
+                        Daemon::log("Daemon " . self::getCurrentScriptBasename(). " has received SIGTERM.");
+                        Daemon::halt('SIGTERM');
                         break;
                     }
                 }
@@ -228,8 +228,8 @@ class Daemon {
         $fHandler = function($iSignal) {
             switch($iSignal) {
                 case SIGTERM: case SIGINT: case SIGHUP: {
-                    self::log("Daemon " . self::getCurrentScriptBasename(). "  has received signal.");
-                    self::removePIDFile();
+                    Daemon::log("Daemon " . self::getCurrentScriptBasename(). " has received signal.");
+                    Daemon::removePIDFile();
                     break;
                 }
             }
