@@ -11,7 +11,7 @@ class Daemon {
     /* variables */
 
     private static $isRunning = true;
-    private static $iSecondsToSleep = 0;
+    private static $iMicroSecondsToSleep = 0;
     private static $oErrorHandler;
     private static $oDaemonInstance = null;
     private static $fLogCallback = null;
@@ -200,7 +200,7 @@ class Daemon {
             $fHandler = function($iSignal) {
                 switch($iSignal) {
                     case SIGTERM: {
-                        Daemon::log("Daemon " . self::getCurrentScriptBasename(). " has received SIGTERM.");
+                        Daemon::log("Daemon " . Daemon::getCurrentScriptBasename(). " has received SIGTERM.");
                         Daemon::halt('SIGTERM');
                         break;
                     }
@@ -214,7 +214,11 @@ class Daemon {
             die();
         }
 
-        self::$iSecondsToSleep = $iSecondsToSleep;
+        if ($iSecondsToSleep < 0) {
+            $iSecondsToSleep = 0;
+        }
+
+        self::$iMicroSecondsToSleep = $iSecondsToSleep * 1e6;
     }
 
     /* cron daemonization */
@@ -228,7 +232,7 @@ class Daemon {
         $fHandler = function($iSignal) {
             switch($iSignal) {
                 case SIGTERM: case SIGINT: case SIGHUP: {
-                    Daemon::log("Daemon " . self::getCurrentScriptBasename(). " has received signal.");
+                    Daemon::log("Daemon " . Daemon::getCurrentScriptBasename(). " has received signal.");
                     Daemon::removePIDFile();
                     break;
                 }
@@ -335,7 +339,7 @@ class Daemon {
             return;
         }
 
-        sleep($iSeconds > 0 ? $iSeconds : self::$iSecondsToSleep);
+        usleep($iSeconds > 0 ? $iSeconds * 1e6 : self::$iMicroSecondsToSleep);
     }
 
 }
